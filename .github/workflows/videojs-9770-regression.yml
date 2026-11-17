@@ -1,0 +1,61 @@
+name: Video.js 9770 touch regression
+
+on:
+  push:
+    branches:
+      - 'ci/videojs-9770-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    if: github.repository_owner == 'KemalG-u'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CI: 'true'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - name: Checkout this test branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          clean: false
+
+      - name: Set up the project Node.js version without caching
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: '.nvmrc'
+          package-manager-cache: false
+
+      - name: Set up the project pnpm version without caching
+        uses: pnpm/action-setup@d9184bf108216479bc5a137cc391f4d7b14c870b # v6.1.0
+        with:
+          version: 12.6.0
+          run_install: false
+          cache: false
+
+      - name: Install locked dependencies without lifecycle scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install Chromium, WebKit and their system dependencies
+        run: pnpm --dir apps/e2e exec playwright install --with-deps chromium webkit
+
+      - name: Build packages
+        run: pnpm build:packages
+
+      - name: Build CDN bundles
+        run: pnpm build:cdn
+
+      - name: Generate the player test pages
+        run: pnpm exec vp run '@videojs/e2e#prepare:player'
+
+      - name: Run the first-tap regression on both browser engines
+        run: >-
+          pnpm --dir apps/e2e exec playwright test
+          --config suites/player/playwright.config.ts gestures.spec.ts
+          --project=vite-chromium --project=vite-webkit
+          --grep 'tap reveals hidden controls'
+          --retries=0 --workers=1 --reporter=line
